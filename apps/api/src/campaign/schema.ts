@@ -10,13 +10,17 @@ export const CampaignChannelSchema = z.object({
 });
 
 export const CampaignPayloadSchema = z.object({
+  inputs: z.object({
+    connectedSources: z.array(z.enum(["website", "shopify", "crm"])).min(1),
+  }),
+
   objective: z.string().min(1),
 
   audience: z.object({
     name: z.string().min(1),
+    sizeEstimate: z.number().int().positive().optional(),
     rules: z.object({
       segment: z.string().min(1),
-      // keep this constrained; avoid "any" to improve structured-output compliance
       conditions: z.array(
         z.object({
           field: z.string().min(1),
@@ -25,25 +29,47 @@ export const CampaignPayloadSchema = z.object({
         })
       ),
     }),
-    sizeEstimate: z.number().int().positive().optional(),
   }),
 
   timing: z.object({
     trigger: z.string().min(1),
-    quietHours: z
-      .object({
-        start: z.string().min(1), // "21:00"
-        end: z.string().min(1),   // "08:00"
-        timezone: z.string().min(1),
-      })
-      .optional(),
     frequencyCap: z
       .object({
         maxPerUser: z.number().int().positive(),
         perDays: z.number().int().positive(),
       })
       .optional(),
+    quietHours: z
+      .object({
+        start: z.string().min(1),
+        end: z.string().min(1),
+        timezone: z.string().min(1),
+      })
+      .optional(),
   }),
+
+  tracking: z
+    .object({
+      utm: z
+        .object({
+          source: z.string().min(1),
+          medium: z.string().min(1),
+          campaign: z.string().min(1),
+        })
+        .optional(),
+      website: z
+        .object({
+          pixel: z.string().optional(),
+          events: z.array(z.string()).optional(),
+        })
+        .optional(),
+      shopify: z
+        .object({
+          discountCode: z.string().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
 
   channels: z.array(CampaignChannelSchema).min(1),
 });

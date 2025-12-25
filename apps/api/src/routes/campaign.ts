@@ -1,12 +1,82 @@
 import { Router } from "express";
 import { pgPool } from "../lib/pg";
 import { redisPub, channelForSession } from "../lib/redisPubSub";
-import { pplxStreamChatCompletions } from "../llm/perplexity";
-import campaignSchema from "../campaign/campaign.schema.json";
+
+import campaignJsonSchema from "../campaign/campaign.schema.json";
+import { pplxChatCompletions, pplxStreamChatCompletions } from "../llm/perplexity";
+
+import { getConnectedSources } from "../db/connectionsRepo";
+import { loadFixture } from "../connectors/fixtures";
 import { CampaignPayloadSchema } from "../campaign/schema";
 
-
 const router = Router();
+
+function* parseSseEventsFromBuffer(buffer: string): Generator<{ dataLines: string[] }, void> {
+  const events = buffer.split("\n\n");
+  for (let i = 0; i < events.length - 1; i++) {
+    const lines = events[i].split("\n");
+    const dataLines: string[] = [];
+    for (const l of lines) {
+      if (l.startsWith("data:")) dataLines.push(l.slice("data:".length).trim());
+    }
+    yield { dataLines };
+  }
+}
+
+async function streamDraftToRedis(params: {
+  apiKey: string;
+  model: string;
+  messages: { role: "system" | "user" | "assistant"; content: string }[];
+  publish: (type: string, data: unknown) => Promise<void>;
+}) {
+  const pplxRes = await pplxStreamChatCompletions({
+    apiKey: params.apiKey,
+    model: params.model,
+    messages: params.messages,
+    returnCitations: false,
+  });
+
+  const reader = pplxRes.body?.getReader();
+  if (!reader) throw new Error("Perplexity response body is empty (no stream)");
+
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  let streamedChars = 0;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+
+    const parts = buffer.split("\n\n");
+    const tail = parts.pop() ?? "";
+    const completePart = parts.join("\n\n") + "\n\n";
+    buffer = tail;
+
+    for (const evt of parseSseEventsFromBuffer(completePart)) {
+      for (const dataStr of evt.dataLines) {
+        if (!dataStr || dataStr === "[DONE]") continue;
+
+        let chunk: any;
+        try {
+          chunk = JSON.parse(dataStr);
+        } catch {
+          continue;
+        }
+
+        const delta = chunk?.choices?.[0]?.delta?.content;
+        if (typeof delta === "string" && delta.length > 0) {
+          streamedChars += delta.length;
+          await params.publish("draft.delta", { text: delta });
+        }
+      }
+    }
+
+    // Keep the draft channel lightweight: stop after ~4000 chars
+    if (streamedChars >= 4000) break;
+  }
+}
 
 router.post("/sessions/:sessionId/generate", async (req, res) => {
   const { sessionId } = req.params;
@@ -14,17 +84,13 @@ router.post("/sessions/:sessionId/generate", async (req, res) => {
 
   if (!prompt) return res.status(400).json({ error: "prompt is required" });
 
-  // 1) Immediately ACK to the HTTP caller (generation continues async-ish)
   res.json({ ok: true });
 
   const publish = async (type: string, data: unknown) => {
-    await redisPub.publish(
-      channelForSession(sessionId),
-      JSON.stringify({ type, data })
-    );
+    await redisPub.publish(channelForSession(sessionId), JSON.stringify({ type, data }));
   };
 
-  await publish("status", { message: "Starting Perplexity generation..." });
+  await publish("status", { message: "Starting campaign generation..." });
 
   const apiKey = process.env.PERPLEXITY_API_KEY;
   if (!apiKey) {
@@ -32,95 +98,121 @@ router.post("/sessions/:sessionId/generate", async (req, res) => {
     return;
   }
 
-  // 2) Prompt the model to output JSON only
-  const system = `You are a marketing automation planner.
-Return ONLY valid JSON (no markdown, no prose).
-Output must include: objective, audience, timing, channels[].`;
+  const model = process.env.PERPLEXITY_MODEL ?? "sonar-pro";
+  const selectedChannels = (channels?.length ? channels : ["email", "sms", "whatsapp", "ads"]) as string[];
 
-  const user = `Prompt: ${prompt}
-Channels: ${JSON.stringify(channels ?? ["email", "sms", "whatsapp", "ads"])}
-Return a campaign JSON.`;
+  const connectedSources = await getConnectedSources();
+  if (connectedSources.length === 0) {
+    await publish("error", { message: "No connected sources. Connect at least one source first." });
+    return;
+  }
+
+  const signals: Record<string, any> = {};
+  for (const s of connectedSources) signals[s] = loadFixture(s);
+
+  const signalsSummary = JSON.stringify(
+    {
+      connectedSources,
+      website: signals.website
+        ? { eventsLast7d: signals.website.eventsLast7d, topPages: signals.website.topPages }
+        : undefined,
+      shopify: signals.shopify
+        ? {
+            ordersLast30d: signals.shopify.ordersLast30d,
+            aov: signals.shopify.aov,
+            repeatCustomerRate: signals.shopify.repeatCustomerRate,
+          }
+        : undefined,
+      crm: signals.crm ? { segments: signals.crm.segments, consent: signals.crm.consent } : undefined,
+    },
+    null,
+    2
+  );
+
+  // Pass A (stream draft) prompt: allow normal natural language, but ask to keep it short.
+  const draftSystem = `You are drafting a campaign plan.
+Keep it short, bullet-like, and do not include citations.
+This is a DRAFT preview only; do not output JSON.`;
+
+  const draftUser = `User prompt: ${prompt}
+Selected channels: ${JSON.stringify(selectedChannels)}
+Signals: ${signalsSummary}`;
+
+  // Pass B (final JSON) prompt: strict + schema-enforced.
+  const finalSystem = `You are a marketing automation planner.
+Return ONLY JSON matching the provided JSON Schema.
+Do not include citations like [1] and do not include extra keys.`;
+
+  const finalUser = `User prompt: ${prompt}
+Selected channels: ${JSON.stringify(selectedChannels)}
+Signals (from connected sources): ${signalsSummary}`;
 
   try {
-    const pplxRes = await pplxStreamChatCompletions({
+    // Run draft streaming (don’t fail the whole run if draft fails)
+    await publish("status", { message: "Draft streaming started..." });
+    streamDraftToRedis({
       apiKey,
-      model: "sonar-pro",
+      model,
       messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
+        { role: "system", content: draftSystem },
+        { role: "user", content: draftUser },
+      ],
+      publish,
+    }).catch(async (e) => {
+      await publish("status", { message: "Draft streaming failed (continuing to final)", detail: String(e?.message ?? e) });
+    });
+
+    // Final structured output (authoritative)
+    await publish("status", { message: "Final JSON generation started..." });
+
+    const out = await pplxChatCompletions({
+      apiKey,
+      model,
+      returnCitations: false,
+      responseFormat: {
+        type: "json_schema",
+        json_schema: { schema: campaignJsonSchema },
+      },
+      messages: [
+        { role: "system", content: finalSystem },
+        { role: "user", content: finalUser },
       ],
     });
 
-    // 3) Read Perplexity SSE stream and forward partial text as "draft.delta"
-    const reader = pplxRes.body!.getReader();
-    const decoder = new TextDecoder("utf-8");
-    let buffer = "";
-    let fullText = "";
-
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-
-      // Perplexity streams as SSE-like "data: {...}\n\n"
-      // We'll parse line-by-line.
-      const parts = buffer.split("\n\n");
-      buffer = parts.pop() ?? "";
-
-      for (const chunk of parts) {
-        const line = chunk.split("\n").find(l => l.startsWith("data: "));
-        if (!line) continue;
-
-        const dataStr = line.slice("data: ".length).trim();
-        if (dataStr === "[DONE]") continue;
-
-        try {
-          const json = JSON.parse(dataStr);
-          const delta = json?.choices?.[0]?.delta?.content ?? "";
-          if (delta) {
-            fullText += delta;
-            await publish("draft.delta", { text: delta });
-          }
-        } catch {
-          // ignore parse errors for non-JSON lines
-        }
-      }
-    }
-
-    // 4) Try to parse the final JSON
-    const start = fullText.indexOf("{");
-    const end = fullText.lastIndexOf("}");
-    if (start === -1 || end === -1) {
-      await publish("error", { message: "Model did not return JSON", raw: fullText });
+    const text: string = out?.choices?.[0]?.message?.content ?? "";
+    if (!text.trim()) {
+      await publish("error", { message: "Empty model response", raw: out });
       return;
     }
 
-    const jsonText = fullText.slice(start, end + 1);
-    const payload = JSON.parse(jsonText);
+    let payloadRaw: any;
+    try {
+      payloadRaw = JSON.parse(text);
+    } catch {
+      await publish("error", { message: "Model response was not valid JSON", raw: text });
+      return;
+    }
 
-    const parsed = CampaignPayloadSchema.safeParse(payload);
+    // Force connected sources (prevents hallucination / mismatch)
+    payloadRaw.inputs = payloadRaw.inputs ?? {};
+    payloadRaw.inputs.connectedSources = connectedSources;
 
+    const parsed = CampaignPayloadSchema.safeParse(payloadRaw);
     if (!parsed.success) {
       await publish("error", {
         message: "Campaign JSON failed validation",
-        issues: parsed.error.issues
+        issues: parsed.error.issues,
+        raw: payloadRaw,
       });
       return;
     }
 
-    await publish("campaign.generated", parsed.data);
-
-
-    // 5) Emit final
-    await publish("campaign.generated", payload);
-
-    // Optional: persist payload
     await pgPool.query(
       "insert into campaign_payloads (session_id, payload_json) values ($1, $2)",
-      [sessionId, payload]
+      [sessionId, parsed.data]
     );
 
+    await publish("campaign.generated", parsed.data);
     await publish("status", { message: "Campaign generated" });
   } catch (e: any) {
     await publish("error", { message: "Generation failed", detail: String(e?.message ?? e) });

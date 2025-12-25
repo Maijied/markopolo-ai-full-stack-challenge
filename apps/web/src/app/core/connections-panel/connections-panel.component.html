@@ -1,0 +1,23 @@
+<div class="px-nav">
+  <div class="px-nav-title">Connections</div>
+
+  <div class="px-muted" *ngIf="loading">Loading…</div>
+
+  <div class="px-conn-row" *ngFor="let s of sources">
+    <div class="px-conn-left">
+      <div class="px-conn-name">{{ s }}</div>
+
+      <div
+        class="px-conn-status"
+        [class.ok]="isConnected(s)"
+        [class.bad]="!isConnected(s)"
+      >
+        {{ isConnected(s) ? "Connected" : "Disconnected" }}
+      </div>
+    </div>
+
+    <button class="px-btn-secondary" (click)="toggle(s)">
+      {{ isConnected(s) ? "Disconnect" : "Connect" }}
+    </button>
+  </div>
+</div>

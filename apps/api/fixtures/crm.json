@@ -1,0 +1,11 @@
+{
+  "segments": {
+    "churn_risk": { "sizeEstimate": 820, "inactiveDaysMin": 21 },
+    "vip": { "sizeEstimate": 120, "minLtv": 250 }
+  },
+  "consent": {
+    "emailOptInRate": 0.72,
+    "smsOptInRate": 0.33,
+    "whatsappOptInRate": 0.18
+  }
+}

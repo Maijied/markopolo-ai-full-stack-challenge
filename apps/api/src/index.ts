@@ -15,6 +15,7 @@ import chatRouter from "./routes/chat";
 import chatStreamRouter from "./routes/chatStream";
 import { redisPub, redisSub } from "./lib/redisPubSub";
 import campaignRouter from "./routes/campaign";
+import connectionsRouter from "./routes/connections";
 
 const app = express();
 
@@ -31,6 +32,7 @@ app.use("/migrate", migrateRouter);
 app.use("/chat", chatRouter);
 app.use("/chat", chatStreamRouter);
 app.use("/campaign", campaignRouter);
+app.use("/connections", connectionsRouter);
 
 app.listen(port, () => {
   console.log(`API listening on http://localhost:${port}`);

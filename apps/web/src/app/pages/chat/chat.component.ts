@@ -61,11 +61,18 @@ export class ChatComponent implements OnInit, OnDestroy {
             } else if (ev.type === "campaign.generated") {
               this.campaign = ev.data;
               this.generating = false;
+            } else if (ev.type === "error") {
+              // Stop spinner if backend reports an error via SSE
+              console.error("SSE error event:", ev.data);
+              this.generating = false;
             }
+
             this.cdr.markForCheck();
           },
           error: (e) => {
+            // This only triggers if the Observable errors (you usually don't call observer.error() in SseService)
             console.error("stream error", e);
+            this.generating = false;
             this.cdr.markForCheck();
           },
         });

@@ -255,3 +255,18 @@ html, body { height: 100%; margin: 0; background: var(--bg); color: var(--text);
   .px-right{ display: none; }
   .px-thread{ min-height: calc(100vh - 40px); }
 }
+.px-conn-row{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(255,255,255,.02);
+  margin-bottom: 10px;
+}
+.px-conn-name{ font-weight: 700; text-transform: capitalize; }
+.px-conn-status{ font-size: 12px; color: var(--muted); }
+.px-conn-status.ok{ color: rgba(32,184,205,.95); }
+.px-conn-status.bad{ color: rgba(255,255,255,.55); }

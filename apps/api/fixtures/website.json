@@ -1,0 +1,10 @@
+{
+  "eventsLast7d": {
+    "page_view": 12840,
+    "pricing_view": 940,
+    "signup_start": 210,
+    "signup_complete": 120
+  },
+  "topPages": ["/pricing", "/features", "/checkout"],
+  "geoTop": ["BD", "IN", "SG"]
+}
