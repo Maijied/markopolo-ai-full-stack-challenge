@@ -1,16 +1,90 @@
-<h1>Chat</h1>
+<div class="px-thread-layout" *ngIf="sessionId; else loading">
+  <!-- Center thread -->
+  <section class="px-thread">
+    <header class="px-thread-header">
+      <div>
+        <div class="px-title">What do you want to know?</div>
+        <div class="px-subtitle">
+          Session: <span class="px-mono">{{ sessionId }}</span>
+        </div>
+      </div>
+    </header>
 
-<div *ngIf="!sessionId">Creating session...</div>
+    <div class="px-messages">
+      <div *ngIf="messages.length === 0" class="px-empty">
+        Ask something to generate a campaign plan (streaming).
+      </div>
 
-<div *ngIf="sessionId">
-  <div>Session: <code>{{ sessionId }}</code></div>
+      <div *ngFor="let m of messages" class="px-msg" [class.px-msg-user]="m.role === 'user'">
+        <div class="px-msg-meta">
+          <span class="px-role">{{ m.role }}</span>
+          <span class="px-dot">•</span>
+          <span class="px-muted px-mono">{{ m.created_at }}</span>
+        </div>
+        <div class="px-msg-body">{{ m.content }}</div>
+      </div>
+    </div>
 
-  <div style="margin: 12px 0;">
-    <input [(ngModel)]="input" placeholder="Type a message..." style="width: 70%;" />
-    <button (click)="send()">Send</button>
-  </div>
+    <!-- Bottom composer (Perplexity-like) -->
+    <footer class="px-composer">
+      <div class="px-composer-inner">
+        <input
+          [(ngModel)]="input"
+          type="text"
+          class="px-input"
+          placeholder="Ask anything…"
+          (keyup.enter)="send()"
+        />
+        <button class="px-btn" (click)="send()">Send</button>
+      </div>
 
-  <div *ngFor="let m of messages">
-    <strong>{{ m.role }}</strong>: {{ m.content }}
-  </div>
+      <div class="px-composer-actions">
+        <button class="px-btn-secondary" (click)="generateCampaign()" [disabled]="generating">
+          {{ generating ? "Generating…" : "Generate campaign JSON" }}
+        </button>
+      </div>
+    </footer>
+  </section>
+
+  <!-- Right panel (Perplexity-like “Sources / Output”) -->
+  <aside class="px-right">
+    <div class="px-panel">
+      <div class="px-panel-title">Campaign prompt</div>
+      <textarea [(ngModel)]="campaignPrompt" class="px-textarea"></textarea>
+
+      <div class="px-panel-title" style="margin-top: 12px;">Channels</div>
+      <div class="px-chip-row">
+        <label class="px-check">
+          <input type="checkbox" [checked]="selectedChannels.includes('email')"
+                 (change)="toggleChannel('email', $any($event.target).checked)" />
+          <span>Email</span>
+        </label>
+        <label class="px-check">
+          <input type="checkbox" [checked]="selectedChannels.includes('sms')"
+                 (change)="toggleChannel('sms', $any($event.target).checked)" />
+          <span>SMS</span>
+        </label>
+        <label class="px-check">
+          <input type="checkbox" [checked]="selectedChannels.includes('whatsapp')"
+                 (change)="toggleChannel('whatsapp', $any($event.target).checked)" />
+          <span>WhatsApp</span>
+        </label>
+        <label class="px-check">
+          <input type="checkbox" [checked]="selectedChannels.includes('ads')"
+                 (change)="toggleChannel('ads', $any($event.target).checked)" />
+          <span>Ads</span>
+        </label>
+      </div>
+
+      <div class="px-panel-title" style="margin-top: 12px;">Stream (draft)</div>
+      <pre class="px-pre">{{ draftText || "—" }}</pre>
+
+      <div class="px-panel-title" style="margin-top: 12px;">Final campaign JSON</div>
+      <pre class="px-pre">{{ campaign | json }}</pre>
+    </div>
+  </aside>
 </div>
+
+<ng-template #loading>
+  <div class="px-loading">Creating session…</div>
+</ng-template>

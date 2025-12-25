@@ -13,7 +13,7 @@ export class SseService {
   constructor(
     private zone: NgZone,
     @Inject(PLATFORM_ID) private platformId: Object
-  ) {}
+  ) { }
 
   streamPing(): Observable<SseEvent> {
     if (!isPlatformBrowser(this.platformId)) {
@@ -75,9 +75,23 @@ export class SseService {
             observer.next({ type: "message.created", data: JSON.parse(ev.data) })
           );
 
+
         es.addEventListener("status", onStatus as EventListener);
         es.addEventListener("snapshot", onSnapshot as EventListener);
         es.addEventListener("message.created", onMessageCreated as EventListener);
+
+        const onDraftDelta = (ev: MessageEvent) =>
+          this.zone.run(() =>
+            observer.next({ type: "draft.delta", data: JSON.parse(ev.data) })
+          );
+
+        const onCampaignGenerated = (ev: MessageEvent) =>
+          this.zone.run(() =>
+            observer.next({ type: "campaign.generated", data: JSON.parse(ev.data) })
+          );
+
+        es.addEventListener("draft.delta", onDraftDelta as EventListener);
+        es.addEventListener("campaign.generated", onCampaignGenerated as EventListener);
 
         es.onerror = (err) => {
           // Non-fatal: don't observer.error() or close here.
