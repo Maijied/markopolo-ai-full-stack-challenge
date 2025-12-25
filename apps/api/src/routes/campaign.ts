@@ -2,6 +2,9 @@ import { Router } from "express";
 import { pgPool } from "../lib/pg";
 import { redisPub, channelForSession } from "../lib/redisPubSub";
 import { pplxStreamChatCompletions } from "../llm/perplexity";
+import campaignSchema from "../campaign/campaign.schema.json";
+import { CampaignPayloadSchema } from "../campaign/schema";
+
 
 const router = Router();
 
@@ -35,7 +38,7 @@ Return ONLY valid JSON (no markdown, no prose).
 Output must include: objective, audience, timing, channels[].`;
 
   const user = `Prompt: ${prompt}
-Channels: ${JSON.stringify(channels ?? ["email","sms","whatsapp","ads"])}
+Channels: ${JSON.stringify(channels ?? ["email", "sms", "whatsapp", "ads"])}
 Return a campaign JSON.`;
 
   try {
@@ -95,6 +98,19 @@ Return a campaign JSON.`;
 
     const jsonText = fullText.slice(start, end + 1);
     const payload = JSON.parse(jsonText);
+
+    const parsed = CampaignPayloadSchema.safeParse(payload);
+
+    if (!parsed.success) {
+      await publish("error", {
+        message: "Campaign JSON failed validation",
+        issues: parsed.error.issues
+      });
+      return;
+    }
+
+    await publish("campaign.generated", parsed.data);
+
 
     // 5) Emit final
     await publish("campaign.generated", payload);

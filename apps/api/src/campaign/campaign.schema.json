@@ -1,0 +1,98 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["objective", "audience", "timing", "channels"],
+  "properties": {
+    "objective": { "type": "string", "minLength": 1 },
+    "audience": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "rules"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "sizeEstimate": { "type": "integer", "minimum": 1 },
+        "rules": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["segment", "conditions"],
+          "properties": {
+            "segment": { "type": "string", "minLength": 1 },
+            "conditions": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["field", "op", "value"],
+                "properties": {
+                  "field": { "type": "string", "minLength": 1 },
+                  "op": {
+                    "type": "string",
+                    "enum": ["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains"]
+                  },
+                  "value": {
+                    "oneOf": [
+                      { "type": "string" },
+                      { "type": "number" },
+                      { "type": "boolean" },
+                      { "type": "array", "items": { "type": "string" } }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "timing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trigger"],
+      "properties": {
+        "trigger": { "type": "string", "minLength": 1 },
+        "quietHours": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["start", "end", "timezone"],
+          "properties": {
+            "start": { "type": "string" },
+            "end": { "type": "string" },
+            "timezone": { "type": "string" }
+          }
+        },
+        "frequencyCap": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxPerUser", "perDays"],
+          "properties": {
+            "maxPerUser": { "type": "integer", "minimum": 1 },
+            "perDays": { "type": "integer", "minimum": 1 }
+          }
+        }
+      }
+    },
+    "channels": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["channel", "message"],
+        "properties": {
+          "channel": { "type": "string", "enum": ["email", "sms", "whatsapp", "ads"] },
+          "message": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["body", "variables"],
+            "properties": {
+              "subject": { "type": "string" },
+              "body": { "type": "string", "minLength": 1 },
+              "variables": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      }
+    }
+  }
+}
