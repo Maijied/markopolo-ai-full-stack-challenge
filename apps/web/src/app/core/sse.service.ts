@@ -15,10 +15,9 @@ export class SseService {
     @Inject(PLATFORM_ID) private platformId: Object
   ) {}
 
+  // Existing ping stream
   streamPing(): Observable<SseEvent> {
-    // Only create EventSource in the browser
     if (!isPlatformBrowser(this.platformId)) {
-      // SSR: return an empty observable
       return new Observable<SseEvent>((observer) => observer.complete());
     }
 
@@ -26,29 +25,59 @@ export class SseService {
     const es = new EventSource(url);
 
     return new Observable<SseEvent>((observer) => {
-      const onStatus = (ev: MessageEvent) => {
+      const onStatus = (ev: MessageEvent) =>
         this.zone.run(() =>
           observer.next({ type: "status", data: JSON.parse(ev.data) })
         );
-      };
 
-      const onTick = (ev: MessageEvent) => {
+      const onTick = (ev: MessageEvent) =>
         this.zone.run(() =>
           observer.next({ type: "tick", data: JSON.parse(ev.data) })
         );
-      };
 
-      const onError = (err: any) => {
+      es.addEventListener("status", onStatus as EventListener);
+      es.addEventListener("tick", onTick as EventListener);
+
+      es.onerror = (err) => {
         this.zone.run(() => observer.error(err));
         es.close();
       };
 
-      es.addEventListener("status", onStatus as EventListener);
-      es.addEventListener("tick", onTick as EventListener);
-      es.onerror = onError;
-
-      // Cleanup on unsubscribe
       return () => es.close();
     });
+  }
+
+  // New: stream chat session events
+  streamSession(sessionId: string): Observable<SseEvent> {
+    if (!isPlatformBrowser(this.platformId)) {
+      return new Observable<SseEvent>((observer) => observer.complete());
+    }
+
+    const url = `${environment.apiBaseUrl}/chat/sessions/${sessionId}/stream`;
+    const es = new EventSource(url);
+
+    // inside SseService.streamSession
+    return new Observable<SseEvent>((observer) => {
+      this.zone.runOutsideAngular(() => {
+        const onStatus = (ev: MessageEvent) =>
+          this.zone.run(() => observer.next({ type: "status", data: JSON.parse(ev.data) }));
+
+        const onSnapshot = (ev: MessageEvent) =>
+          this.zone.run(() => observer.next({ type: "snapshot", data: JSON.parse(ev.data) }));
+
+        es.addEventListener("status", onStatus as EventListener);
+        es.addEventListener("snapshot", onSnapshot as EventListener);
+
+        es.onerror = (err) => {
+          // Don’t always observer.error() here (EventSource may auto-reconnect).
+          this.zone.run(() => observer.next({ type: "error", data: err }));
+          // optionally keep connection open; only close when you truly want to stop
+          // es.close();
+        };
+      });
+
+      return () => es.close();
+    });
+
   }
 }

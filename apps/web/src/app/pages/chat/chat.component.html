@@ -1,0 +1,16 @@
+<h1>Chat</h1>
+
+<div *ngIf="!sessionId">Creating session...</div>
+
+<div *ngIf="sessionId">
+  <div>Session: <code>{{ sessionId }}</code></div>
+
+  <div style="margin: 12px 0;">
+    <input [(ngModel)]="input" placeholder="Type a message..." style="width: 70%;" />
+    <button (click)="send()">Send</button>
+  </div>
+
+  <div *ngFor="let m of messages">
+    <strong>{{ m.role }}</strong>: {{ m.content }}
+  </div>
+</div>
