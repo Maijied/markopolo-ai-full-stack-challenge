@@ -4,6 +4,7 @@ import { FormsModule } from "@angular/forms";
 import { Subscription } from "rxjs";
 import { ChatApiService, ChatMessage } from "../../core/chat-api.service";
 import { SseService } from "../../core/sse.service";
+import { ChangeDetectorRef } from "@angular/core";
 
 @Component({
   standalone: true,
@@ -17,20 +18,34 @@ export class ChatComponent implements OnInit, OnDestroy {
   input = "";
   private sub?: Subscription;
 
-  constructor(private api: ChatApiService, private sse: SseService) {}
+  constructor(
+    private api: ChatApiService,
+    private sse: SseService,
+    private cdr: ChangeDetectorRef
+  ) { }
 
   ngOnInit(): void {
-    this.api.createSession().subscribe(({ sessionId }) => {
-      this.sessionId = sessionId;
+    this.api.createSession().subscribe({
+      next: ({ sessionId }) => {
+        this.sessionId = sessionId;
+        this.cdr.markForCheck();
 
-      this.sub = this.sse.streamSession(sessionId).subscribe({
-        next: (ev) => {
-          if (ev.type === "snapshot") {
-            this.messages = ev.data.messages ?? [];
+        this.sub = this.sse.streamSession(sessionId).subscribe({
+          next: (ev) => {
+            if (ev.type === "snapshot") this.messages = ev.data.messages ?? [];
+            if (ev.type === "message.created") this.messages = [...this.messages, ev.data];
+            this.cdr.markForCheck();
+          },
+          error: (e) => {
+            console.error("stream error", e);
+            this.cdr.markForCheck();
           }
-        },
-        error: (e) => console.error("stream error", e),
-      });
+        });
+      },
+      error: (e) => {
+        console.error("createSession failed", e);
+        this.cdr.markForCheck();
+      }
     });
   }
 
@@ -40,10 +55,7 @@ export class ChatComponent implements OnInit, OnDestroy {
     if (!text) return;
 
     this.input = "";
-    this.api.sendMessage(this.sessionId, "user", text).subscribe(() => {
-      // Step 6 will push live updates; for now just refetch or rely on snapshot refresh.
-      this.api.listMessages(this.sessionId!).subscribe((r) => (this.messages = r.messages));
-    });
+    this.api.sendMessage(this.sessionId, "user", text).subscribe();
   }
 
   ngOnDestroy(): void {

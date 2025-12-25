@@ -15,69 +15,77 @@ export class SseService {
     @Inject(PLATFORM_ID) private platformId: Object
   ) {}
 
-  // Existing ping stream
   streamPing(): Observable<SseEvent> {
     if (!isPlatformBrowser(this.platformId)) {
       return new Observable<SseEvent>((observer) => observer.complete());
     }
 
     const url = `${environment.apiBaseUrl}/sse/ping`;
-    const es = new EventSource(url);
 
     return new Observable<SseEvent>((observer) => {
-      const onStatus = (ev: MessageEvent) =>
-        this.zone.run(() =>
-          observer.next({ type: "status", data: JSON.parse(ev.data) })
-        );
+      const es = new EventSource(url);
 
-      const onTick = (ev: MessageEvent) =>
-        this.zone.run(() =>
-          observer.next({ type: "tick", data: JSON.parse(ev.data) })
-        );
+      this.zone.runOutsideAngular(() => {
+        const onStatus = (ev: MessageEvent) =>
+          this.zone.run(() =>
+            observer.next({ type: "status", data: JSON.parse(ev.data) })
+          );
 
-      es.addEventListener("status", onStatus as EventListener);
-      es.addEventListener("tick", onTick as EventListener);
+        const onTick = (ev: MessageEvent) =>
+          this.zone.run(() =>
+            observer.next({ type: "tick", data: JSON.parse(ev.data) })
+          );
 
-      es.onerror = (err) => {
-        this.zone.run(() => observer.error(err));
-        es.close();
-      };
+        es.addEventListener("status", onStatus as EventListener);
+        es.addEventListener("tick", onTick as EventListener);
+
+        es.onerror = (err) => {
+          // Non-fatal: browsers may reconnect automatically.
+          this.zone.run(() => observer.next({ type: "error", data: err }));
+        };
+      });
 
       return () => es.close();
     });
   }
 
-  // New: stream chat session events
   streamSession(sessionId: string): Observable<SseEvent> {
     if (!isPlatformBrowser(this.platformId)) {
       return new Observable<SseEvent>((observer) => observer.complete());
     }
 
     const url = `${environment.apiBaseUrl}/chat/sessions/${sessionId}/stream`;
-    const es = new EventSource(url);
 
-    // inside SseService.streamSession
     return new Observable<SseEvent>((observer) => {
+      const es = new EventSource(url);
+
       this.zone.runOutsideAngular(() => {
         const onStatus = (ev: MessageEvent) =>
-          this.zone.run(() => observer.next({ type: "status", data: JSON.parse(ev.data) }));
+          this.zone.run(() =>
+            observer.next({ type: "status", data: JSON.parse(ev.data) })
+          );
 
         const onSnapshot = (ev: MessageEvent) =>
-          this.zone.run(() => observer.next({ type: "snapshot", data: JSON.parse(ev.data) }));
+          this.zone.run(() =>
+            observer.next({ type: "snapshot", data: JSON.parse(ev.data) })
+          );
+
+        const onMessageCreated = (ev: MessageEvent) =>
+          this.zone.run(() =>
+            observer.next({ type: "message.created", data: JSON.parse(ev.data) })
+          );
 
         es.addEventListener("status", onStatus as EventListener);
         es.addEventListener("snapshot", onSnapshot as EventListener);
+        es.addEventListener("message.created", onMessageCreated as EventListener);
 
         es.onerror = (err) => {
-          // Don’t always observer.error() here (EventSource may auto-reconnect).
+          // Non-fatal: don't observer.error() or close here.
           this.zone.run(() => observer.next({ type: "error", data: err }));
-          // optionally keep connection open; only close when you truly want to stop
-          // es.close();
         };
       });
 
       return () => es.close();
     });
-
   }
 }

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import crypto from "node:crypto";
 import { createSession, insertMessage, listMessages, ChatRole } from "../db/chatRepo";
+import { redisPub, channelForSession } from "../lib/redisPubSub";
 
 const router = Router();
 
@@ -20,6 +21,15 @@ router.post("/sessions/:sessionId/messages", async (req, res) => {
 
   const msgId = crypto.randomUUID();
   const row = await insertMessage({ id: msgId, sessionId, role, content });
+
+  await redisPub.publish(
+    channelForSession(sessionId),
+    JSON.stringify({
+      type: "message.created",
+      data: row,
+    })
+  );
+
   res.status(201).json(row);
 });
 
