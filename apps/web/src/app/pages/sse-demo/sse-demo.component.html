@@ -1,0 +1,8 @@
+<div class="wrap">
+  <h1>SSE Demo</h1>
+  <div class="hint">
+    Streaming from <code>/sse/ping</code> (Node API). Total events: {{ events.length }}
+  </div>
+
+  <pre *ngFor="let ev of events">{{ ev.type }}: {{ ev.data | json }}</pre>
+</div>
